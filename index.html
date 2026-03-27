@@ -211,7 +211,6 @@
       snap.forEach(c => { 
         const id = c.key;
         servers[id] = { ...c.val(), history:[] }; 
-        // FIX: Setup history listener once when server is loaded
         setupHistoryListener(id);
       });
       renderCards();
@@ -260,7 +259,6 @@
   async function pollAll() {
     for (const [id, srv] of Object.entries(servers)) {
       const s = await fetchStatus(srv.host);
-      // FIX: Only write data; the persistent listener handles UI updates
       push(ref(db,`history/${id}`), { t: Date.now(), players: s.players, ping: s.ping ?? 0, online: s.online });
       updateCardLive(id, s);
       pruneHistory(id);
@@ -268,7 +266,6 @@
   }
 
   function setupHistoryListener(id) {
-    // FIX: Removed internal pollAll call to avoid nested listener attachment
     onValue(ref(db,`history/${id}`), snap => {
       const pts = [];
       snap.forEach(c => pts.push(c.val()));
