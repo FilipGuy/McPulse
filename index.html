@@ -272,7 +272,7 @@
       servers[id].miniHistory = pts.slice(-40); // last 40 for card
       drawMiniChart(id);
       if (currentModalId === id) refreshModalChart();
-    }, { onlyOnce: true });
+    }, { onlyOnce: false });
   }
 
   // Smart label format based on time span
@@ -475,7 +475,7 @@
   function esc(s) { return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
   window.addEventListener("DOMContentLoaded", loadServers);
-  setInterval(pollAll, 60000);
+  setInterval(pollAll, 30000);
 </script>
 </body>
 </html>
