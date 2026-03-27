@@ -352,6 +352,25 @@
     const data = raw.length === 1 ? [raw[0], raw[0]] : raw;
     const up = all.length ? Math.round((all.filter(p=>p.online).length / all.length)*100) : 0;
     setText(`u-${id}`, `${up}%`);
+    // Plugin: draw current value label at end of line
+    const endLabelPlugin = {
+      id: 'endLabel',
+      afterDatasetsDraw(chart) {
+        const { ctx, data: d, chartArea: { right } } = chart;
+        const ds = chart.getDatasetMeta(0);
+        if (!ds.data.length) return;
+        const last = ds.data[ds.data.length - 1];
+        const val  = d.datasets[0].data[d.datasets[0].data.length - 1];
+        ctx.save();
+        ctx.font = "bold 11px 'Space Mono', monospace";
+        ctx.fillStyle = col;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(val, right - 2, last.y);
+        ctx.restore();
+      }
+    };
+
     if (miniCharts[id]) miniCharts[id].destroy();
     miniCharts[id] = new Chart(canvas, {
       type: 'line',
@@ -369,8 +388,10 @@
         responsive: true, maintainAspectRatio: false,
         plugins: { legend:{display:false}, tooltip:{enabled:false} },
         scales: { x:{display:false}, y:{display:false, beginAtZero:true} },
-        animation: { duration: 400 }
-      }
+        animation: { duration: 400 },
+        layout: { padding: { right: 30 } }
+      },
+      plugins: [endLabelPlugin]
     });
   }
 
@@ -416,10 +437,12 @@
     const col = getColor(id);
     const history = srv.history;
     if (!history.length) return;
-    const labels = smartLabels(history);
-    const data = history.map(p => currentTab === 'players' ? p.players : p.ping);
+    // pad to at least 2 points so Chart.js draws a line
+    const rawHistory = history.length === 1 ? [history[0], history[0]] : history;
+    const labels = smartLabels(rawHistory);
+    const data = rawHistory.map(p => currentTab === 'players' ? p.players : p.ping);
     // auto-thin points: show dots only if not too many
-    const showDots = history.length <= 80;
+    const showDots = rawHistory.length <= 80;
     if (modalChart) modalChart.destroy();
     modalChart = new Chart(document.getElementById("modal-chart"), {
       type: 'line',
@@ -427,7 +450,7 @@
         labels,
         datasets: [{
           label: currentTab === 'players' ? 'Players Online' : 'Ping (ms)',
-          data, borderColor: col, borderWidth: history.length > 200 ? 1.5 : 2.5,
+          data, borderColor: col, borderWidth: rawHistory.length > 200 ? 1.5 : 2.5,
           backgroundColor: col + "18",
           pointRadius: showDots ? 3 : 0,
           pointHoverRadius: 5,
@@ -448,7 +471,7 @@
           }
         },
         scales: {
-          x: { ticks: { font:{family:'Space Mono',size:10}, color:'#6b6560', maxTicksLimit: maxTicks(history.length), maxRotation:0 }, grid:{color:'#d6d0c422'} },
+          x: { ticks: { font:{family:'Space Mono',size:10}, color:'#6b6560', maxTicksLimit: maxTicks(rawHistory.length), maxRotation:0 }, grid:{color:'#d6d0c422'} },
           y: { beginAtZero:true, ticks:{font:{family:'Space Mono',size:10}, color:'#6b6560'}, grid:{color:'#d6d0c444'} }
         },
         animation: { duration: 300 }
