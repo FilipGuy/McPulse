@@ -210,12 +210,57 @@
     });
   }
 
+  // ── Data pruning ─────────────────────────────────────────────────────────
+  // Keeps recent data dense, thins out old data to save Firebase storage.
+  // Buckets: <24h = every point | 1-7d = 1/hr | 7d-1yr = 1/6hr | 1yr+ = 1/day
+  async function pruneHistory(id) {
+    const { get, remove } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    const snap = await get(ref(db, `history/${id}`));
+    if (!snap.exists()) return;
+
+    const now = Date.now();
+    const buckets = {}; // bucketKey → { key, val } keep newest in bucket
+    const toDelete = [];
+
+    snap.forEach(child => {
+      const val = child.val();
+      const age = now - val.t;
+      let bucketKey;
+
+      if      (age < 86400000)          bucketKey = null;            // <24h: keep all
+      else if (age < 7 * 86400000)      bucketKey = Math.floor(val.t / 3600000);       // 1-7d: 1/hr
+      else if (age < 365 * 86400000)    bucketKey = Math.floor(val.t / (6*3600000));   // 7d-1yr: 1/6hr
+      else                               bucketKey = Math.floor(val.t / 86400000);      // 1yr+: 1/day
+
+      if (bucketKey === null) return; // keep
+
+      if (!buckets[bucketKey]) {
+        buckets[bucketKey] = { key: child.key, val };
+      } else {
+        // keep the newer one, delete the older
+        if (val.t > buckets[bucketKey].val.t) {
+          toDelete.push(buckets[bucketKey].key);
+          buckets[bucketKey] = { key: child.key, val };
+        } else {
+          toDelete.push(child.key);
+        }
+      }
+    });
+
+    for (const key of toDelete) {
+      await remove(ref(db, `history/${id}/${key}`));
+    }
+    if (toDelete.length) console.log(`Pruned ${toDelete.length} old snapshots for ${id}`);
+  }
+
   async function pollAll() {
     for (const [id, srv] of Object.entries(servers)) {
       const s = await fetchStatus(srv.host);
       push(ref(db,`history/${id}`), { t: Date.now(), players: s.players, ping: s.ping ?? 0, online: s.online });
       updateCardLive(id, s);
       loadHistory(id);
+      // prune old data to stay within free tier limits
+      pruneHistory(id);
     }
   }
 
@@ -223,10 +268,32 @@
     onValue(ref(db,`history/${id}`), snap => {
       const pts = [];
       snap.forEach(c => pts.push(c.val()));
-      servers[id].history = pts.slice(-40);
+      servers[id].history = pts;            // all data for modal
+      servers[id].miniHistory = pts.slice(-40); // last 40 for card
       drawMiniChart(id);
       if (currentModalId === id) refreshModalChart();
     }, { onlyOnce: true });
+  }
+
+  // Smart label format based on time span
+  function smartLabels(pts) {
+    if (!pts.length) return [];
+    const span = pts[pts.length-1].t - pts[0].t;
+    const days  = span / 86400000;
+    return pts.map(p => {
+      const d = new Date(p.t);
+      if (days < 1)   return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      if (days < 7)   return d.toLocaleDateString([], {weekday:'short'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      if (days < 365) return d.toLocaleDateString([], {month:'short', day:'numeric'});
+      return d.toLocaleDateString([], {year:'numeric', month:'short'});
+    });
+  }
+
+  function maxTicks(count) {
+    if (count <= 20)  return count;
+    if (count <= 200) return 10;
+    if (count <= 1000) return 12;
+    return 14;
   }
 
   function renderCards() {
@@ -275,8 +342,10 @@
     const srv = servers[id];
     if (!srv || !srv.history.length) return;
     const col = getColor(id);
-    const data = srv.history.map(p => p.players);
-    const up = Math.round((srv.history.filter(p=>p.online).length / srv.history.length)*100);
+    const pts = srv.miniHistory || srv.history;
+    const data = pts.map(p => p.players);
+    const all  = srv.history;
+    const up = all.length ? Math.round((all.filter(p=>p.online).length / all.length)*100) : 0;
     setText(`u-${id}`, `${up}%`);
     if (miniCharts[id]) miniCharts[id].destroy();
     miniCharts[id] = new Chart(canvas, {
@@ -342,11 +411,10 @@
     const col = getColor(id);
     const history = srv.history;
     if (!history.length) return;
-    const labels = history.map(p => {
-      const d = new Date(p.t);
-      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    });
+    const labels = smartLabels(history);
     const data = history.map(p => currentTab === 'players' ? p.players : p.ping);
+    // auto-thin points: show dots only if not too many
+    const showDots = history.length <= 80;
     if (modalChart) modalChart.destroy();
     modalChart = new Chart(document.getElementById("modal-chart"), {
       type: 'line',
@@ -354,10 +422,12 @@
         labels,
         datasets: [{
           label: currentTab === 'players' ? 'Players Online' : 'Ping (ms)',
-          data, borderColor: col, borderWidth: 2.5,
+          data, borderColor: col, borderWidth: history.length > 200 ? 1.5 : 2.5,
           backgroundColor: col + "18",
-          pointRadius: 4, pointBackgroundColor: col,
-          pointBorderColor: '#fff', pointBorderWidth: 2,
+          pointRadius: showDots ? 3 : 0,
+          pointHoverRadius: 5,
+          pointBackgroundColor: col,
+          pointBorderColor: '#fff', pointBorderWidth: 1.5,
           fill: true, tension: 0.35
         }]
       },
@@ -373,7 +443,7 @@
           }
         },
         scales: {
-          x: { ticks: { font:{family:'Space Mono',size:10}, color:'#6b6560', maxTicksLimit:8, maxRotation:0 }, grid:{color:'#d6d0c422'} },
+          x: { ticks: { font:{family:'Space Mono',size:10}, color:'#6b6560', maxTicksLimit: maxTicks(history.length), maxRotation:0 }, grid:{color:'#d6d0c422'} },
           y: { beginAtZero:true, ticks:{font:{family:'Space Mono',size:10}, color:'#6b6560'}, grid:{color:'#d6d0c444'} }
         },
         animation: { duration: 300 }
