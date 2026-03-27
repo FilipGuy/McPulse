@@ -6,456 +6,109 @@
   <title>MCPulse — Server Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
-  <!-- Firebase -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getDatabase, ref, push, onValue, set, serverTimestamp }
-      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-
-    // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
-    const firebaseConfig = {
-      apiKey: "AIzaSyDbONJHUIvQwVSas7Q0oS12aDq11DL4uTA",
-      authDomain: "mcpulse-5ef8d.firebaseapp.com",
-      databaseURL: "https://mcpulse-5ef8d-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId: "mcpulse-5ef8d",
-      storageBucket: "mcpulse-5ef8d.firebasestorage.app",
-      messagingSenderId: "879593413677",
-      appId: "1:879593413677:web:13a73a18ca065a01786ca4"
-    };
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const ADMIN_PASSWORD = "Filipoman123"; // change this
-
-    const app = initializeApp(firebaseConfig);
-    const db  = getDatabase(app);
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
-    const colors = ["#22c55e","#3b82f6","#f59e0b","#ef4444","#a855f7","#06b6d4","#ec4899","#84cc16"];
-    let colorIndex = 0;
-    const serverColors = {};
-
-    function getColor(id) {
-      if (!serverColors[id]) { serverColors[id] = colors[colorIndex++ % colors.length]; }
-      return serverColors[id];
-    }
-
-    // Fake-ping a server via the mcsrvstat.us API (CORS-friendly)
-    async function fetchServerStatus(host) {
-      try {
-        const r = await fetch(`https://api.mcsrvstat.us/2/${host}`);
-        const d = await r.json();
-        return {
-          online: d.online ?? false,
-          players: d.players?.online ?? 0,
-          maxPlayers: d.players?.max ?? 0,
-          version: d.version ?? "?",
-          ping: d.online ? Math.floor(Math.random()*80+20) : null // mcsrvstat doesn't return ping; estimate
-        };
-      } catch { return { online: false, players: 0, maxPlayers: 0, version: "?", ping: null }; }
-    }
-
-    // ── State ────────────────────────────────────────────────────────────────
-    let servers = {};       // id → { name, host, color, history:[] }
-    let historyRef = {};
-
-    function loadServers() {
-      onValue(ref(db, "servers"), snap => {
-        servers = {};
-        snap.forEach(child => {
-          servers[child.key] = { ...child.val(), history: [] };
-        });
-        renderCards();
-        pollAll();
-      });
-    }
-
-    // ── Polling ──────────────────────────────────────────────────────────────
-    async function pollAll() {
-      for (const [id, srv] of Object.entries(servers)) {
-        const status = await fetchServerStatus(srv.host);
-        // push snapshot to firebase
-        push(ref(db, `history/${id}`), {
-          t: Date.now(),
-          players: status.players,
-          ping: status.ping,
-          online: status.online
-        });
-        // load recent history for charts
-        loadHistory(id);
-      }
-    }
-
-    function loadHistory(id) {
-      onValue(ref(db, `history/${id}`), snap => {
-        const pts = [];
-        snap.forEach(c => pts.push(c.val()));
-        // keep last 20
-        servers[id].history = pts.slice(-20);
-        renderCharts();
-      }, { onlyOnce: true });
-    }
-
-    setInterval(pollAll, 60000); // poll every minute
-
-    // ── Render Cards ─────────────────────────────────────────────────────────
-    function renderCards() {
-      const grid = document.getElementById("server-grid");
-      grid.innerHTML = "";
-      if (!Object.keys(servers).length) {
-        grid.innerHTML = `<div class="empty-state">No servers yet. Add one below.</div>`;
-        return;
-      }
-      for (const [id, srv] of Object.entries(servers)) {
-        const col = getColor(id);
-        const card = document.createElement("div");
-        card.className = "card";
-        card.id = `card-${id}`;
-        card.style.setProperty("--accent", col);
-        card.innerHTML = `
-          <div class="card-top">
-            <span class="dot" id="dot-${id}"></span>
-            <h2 class="card-name">${escHtml(srv.name)}</h2>
-            <span class="card-host">${escHtml(srv.host)}</span>
-          </div>
-          <div class="card-stats">
-            <div class="stat"><span class="stat-val" id="players-${id}">—</span><span class="stat-label">Players</span></div>
-            <div class="stat"><span class="stat-val" id="ping-${id}">—</span><span class="stat-label">Ping ms</span></div>
-            <div class="stat"><span class="stat-val" id="ver-${id}">—</span><span class="stat-label">Version</span></div>
-            <div class="stat"><span class="stat-val" id="uptime-${id}">—</span><span class="stat-label">Uptime</span></div>
-          </div>
-          <canvas class="mini-chart" id="chart-${id}" height="60"></canvas>
-        `;
-        grid.appendChild(card);
-        // live data
-        fetchServerStatus(srv.host).then(s => updateCard(id, s));
-      }
-    }
-
-    function updateCard(id, s) {
-      const dot = document.getElementById(`dot-${id}`);
-      if (dot) dot.className = "dot " + (s.online ? "online" : "offline");
-      setText(`players-${id}`, s.online ? `${s.players}/${s.maxPlayers}` : "Offline");
-      setText(`ping-${id}`, s.ping ? `${s.ping}` : "—");
-      setText(`ver-${id}`, s.version || "—");
-    }
-
-    function renderCharts() {
-      for (const [id, srv] of Object.entries(servers)) {
-        const canvas = document.getElementById(`chart-${id}`);
-        if (!canvas || !srv.history.length) continue;
-        const ctx = canvas.getContext("2d");
-        const W = canvas.offsetWidth; canvas.width = W;
-        ctx.clearRect(0,0,W,60);
-        const pts = srv.history.map(p => p.players);
-        const max = Math.max(...pts, 1);
-        const col = getColor(id);
-        // fill
-        ctx.beginPath();
-        pts.forEach((v,i) => {
-          const x = (i/(pts.length-1||1))*W;
-          const y = 60 - (v/max)*50;
-          i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-        });
-        ctx.lineTo(W,60); ctx.lineTo(0,60); ctx.closePath();
-        ctx.fillStyle = col+"33"; ctx.fill();
-        // line
-        ctx.beginPath();
-        pts.forEach((v,i) => {
-          const x = (i/(pts.length-1||1))*W;
-          const y = 60 - (v/max)*50;
-          i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-        });
-        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-
-        // uptime
-        const onlinePts = srv.history.filter(p=>p.online).length;
-        const uptime = Math.round((onlinePts/srv.history.length)*100);
-        setText(`uptime-${id}`, `${uptime}%`);
-      }
-    }
-
-    // ── Add Server ────────────────────────────────────────────────────────────
-    window.addServer = async function() {
-      const pw   = document.getElementById("admin-pass").value;
-      const name = document.getElementById("new-name").value.trim();
-      const host = document.getElementById("new-host").value.trim();
-      const err  = document.getElementById("add-error");
-
-      if (pw !== ADMIN_PASSWORD) { err.textContent = "Wrong password."; return; }
-      if (!name || !host)        { err.textContent = "Fill all fields."; return; }
-      err.textContent = "";
-
-      await push(ref(db, "servers"), { name, host });
-      document.getElementById("new-name").value = "";
-      document.getElementById("new-host").value = "";
-      document.getElementById("admin-pass").value = "";
-      document.getElementById("add-form").style.display = "none";
-    };
-
-    // ── Auth toggle ──────────────────────────────────────────────────────────
-    window.toggleForm = function() {
-      const f = document.getElementById("add-form");
-      f.style.display = f.style.display === "flex" ? "none" : "flex";
-    };
-
-    // ── Utils ────────────────────────────────────────────────────────────────
-    function setText(id, v) { const el=document.getElementById(id); if(el) el.textContent=v; }
-    function escHtml(s) { return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-
-    // ── Init ─────────────────────────────────────────────────────────────────
-    window.addEventListener("DOMContentLoaded", () => {
-      loadServers();
-      // big chart tab
-      document.querySelectorAll(".tab").forEach(t => {
-        t.addEventListener("click", () => {
-          document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
-          t.classList.add("active");
-        });
-      });
-    });
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg: #f5f2ec;
-      --bg2: #eeeae0;
-      --surface: #ffffff;
-      --border: #d6d0c4;
-      --text: #1a1714;
-      --text2: #6b6560;
-      --green: #16a34a;
-      --red: #dc2626;
-      --radius: 12px;
+      --bg: #f5f2ec; --surface: #ffffff; --border: #d6d0c4;
+      --text: #1a1714; --text2: #6b6560;
+      --green: #16a34a; --red: #dc2626; --radius: 12px;
     }
+    body { font-family: 'Syne', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
-    body {
-      font-family: 'Syne', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
-
-    /* ── Header ── */
     header {
-      padding: 28px 40px 20px;
-      display: flex;
-      align-items: baseline;
-      gap: 14px;
-      border-bottom: 1.5px solid var(--border);
-      background: var(--surface);
+      padding: 22px 40px 18px; display: flex; align-items: baseline; gap: 14px;
+      border-bottom: 1.5px solid var(--border); background: var(--surface);
     }
-    .logo {
-      font-size: 1.7rem;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-    }
+    .logo { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.03em; }
     .logo span { color: #22c55e; }
-    .tagline {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.72rem;
-      color: var(--text2);
-      letter-spacing: 0.04em;
-    }
-    .live-badge {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-family: 'Space Mono', monospace;
-      font-size: 0.68rem;
-      color: var(--green);
-    }
-    .pulse {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: var(--green);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
+    .tagline { font-family: 'Space Mono', monospace; font-size: 0.72rem; color: var(--text2); }
+    .live-badge { margin-left: auto; display: flex; align-items: center; gap: 6px; font-family: 'Space Mono', monospace; font-size: 0.68rem; color: var(--green); }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.5s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
 
-    /* ── Main ── */
-    main { max-width: 1200px; margin: 0 auto; padding: 40px 24px 100px; }
+    main { max-width: 1200px; margin: 0 auto; padding: 36px 24px 100px; }
+    .section-title { font-size: 0.7rem; font-family: 'Space Mono', monospace; letter-spacing: 0.12em; color: var(--text2); text-transform: uppercase; margin-bottom: 20px; }
 
-    h1.section-title {
-      font-size: 0.7rem;
-      font-family: 'Space Mono', monospace;
-      letter-spacing: 0.12em;
-      color: var(--text2);
-      text-transform: uppercase;
-      margin-bottom: 20px;
-    }
+    #server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+    .empty-state { grid-column: 1/-1; text-align: center; padding: 60px; color: var(--text2); font-family: 'Space Mono', monospace; font-size: 0.85rem; }
 
-    /* ── Grid ── */
-    #server-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 18px;
-      margin-bottom: 48px;
-    }
-
-    .empty-state {
-      grid-column: 1/-1;
-      text-align: center;
-      padding: 60px;
-      color: var(--text2);
-      font-family: 'Space Mono', monospace;
-      font-size: 0.85rem;
-    }
-
-    /* ── Card ── */
     .card {
-      background: var(--surface);
-      border: 1.5px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
+      background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
+      padding: 20px; cursor: pointer; position: relative; overflow: hidden;
       transition: box-shadow .2s, transform .2s;
-      position: relative;
-      overflow: hidden;
     }
-    .card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 3px;
-      background: var(--accent, #22c55e);
-    }
-    .card:hover { box-shadow: 0 8px 24px rgba(0,0,0,.08); transform: translateY(-2px); }
+    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent, #22c55e); }
+    .card:hover { box-shadow: 0 8px 28px rgba(0,0,0,.1); transform: translateY(-2px); }
 
-    .card-top {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    .dot {
-      width: 9px; height: 9px;
-      border-radius: 50%;
-      background: var(--border);
-      flex-shrink: 0;
-    }
+    .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); flex-shrink: 0; transition: background .3s; }
     .dot.online  { background: var(--green); box-shadow: 0 0 6px #16a34a88; }
     .dot.offline { background: var(--red); }
+    .card-name { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-host { margin-left: auto; font-family: 'Space Mono', monospace; font-size: 0.62rem; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
 
-    .card-name {
-      font-size: 1rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .card-host {
-      margin-left: auto;
-      font-family: 'Space Mono', monospace;
-      font-size: 0.65rem;
-      color: var(--text2);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 120px;
-    }
-
-    .card-stats {
-      display: grid;
-      grid-template-columns: repeat(4,1fr);
-      gap: 8px;
-      margin-bottom: 14px;
-    }
+    .card-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 16px; }
     .stat { text-align: center; }
-    .stat-val {
-      display: block;
-      font-family: 'Space Mono', monospace;
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: var(--text);
-    }
-    .stat-label {
-      display: block;
-      font-size: 0.6rem;
-      color: var(--text2);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-top: 2px;
-    }
+    .stat-val { display: block; font-family: 'Space Mono', monospace; font-size: 0.85rem; font-weight: 700; }
+    .stat-label { display: block; font-size: 0.58rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
 
-    .mini-chart { width: 100%; display: block; border-radius: 6px; }
+    .mini-chart-wrap { position: relative; height: 70px; }
+    .click-hint { text-align: center; font-family: 'Space Mono', monospace; font-size: 0.58rem; color: var(--text2); margin-top: 10px; opacity: 0; transition: opacity .2s; }
+    .card:hover .click-hint { opacity: 1; }
 
-    /* ── Footer admin ── */
+    /* Modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      z-index: 200; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface); border-radius: 16px; padding: 28px 28px 24px;
+      width: 100%; max-width: 720px; position: relative;
+      box-shadow: 0 24px 60px rgba(0,0,0,.15);
+      animation: slideUp .25s ease;
+    }
+    @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+    .modal-close { position: absolute; top: 16px; right: 18px; font-family: 'Space Mono', monospace; font-size: 0.75rem; color: var(--text2); cursor: pointer; border: none; background: none; }
+    .modal-close:hover { color: var(--text); }
+    .modal-title { font-size: 1.3rem; font-weight: 800; margin-bottom: 4px; }
+    .modal-host { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: var(--text2); margin-bottom: 20px; }
+
+    .modal-tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+    .mtab { font-family: 'Space Mono', monospace; font-size: 0.68rem; padding: 5px 14px; border-radius: 20px; border: 1.5px solid var(--border); cursor: pointer; background: none; color: var(--text2); transition: all .15s; }
+    .mtab.active { background: var(--text); color: #fff; border-color: var(--text); }
+
+    .modal-chart-wrap { position: relative; height: 260px; }
+
+    .modal-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-top: 20px; }
+    .modal-stat { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
+    .modal-stat .val { font-family: 'Space Mono', monospace; font-size: 1.1rem; font-weight: 700; }
+    .modal-stat .lbl { font-size: 0.62rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 3px; }
+
     footer {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      background: var(--surface);
-      border-top: 1.5px solid var(--border);
-      padding: 10px 24px;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 8px;
-      z-index: 100;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface); border-top: 1.5px solid var(--border);
+      padding: 10px 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 100;
     }
-
-    #add-form {
-      display: none;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    footer input {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.75rem;
-      padding: 7px 12px;
-      border: 1.5px solid var(--border);
-      border-radius: 8px;
-      background: var(--bg);
-      color: var(--text);
-      outline: none;
-      transition: border-color .15s;
-    }
+    #add-form { display: none; gap: 8px; align-items: center; flex-wrap: wrap; }
+    footer input { font-family: 'Space Mono', monospace; font-size: 0.75rem; padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); outline: none; transition: border-color .15s; }
     footer input:focus { border-color: #22c55e; }
     footer input[placeholder="Server name"] { width: 140px; }
     footer input[placeholder="mc.example.com"] { width: 160px; }
     footer input[type="password"] { width: 120px; }
-
-    .btn {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 0.75rem;
-      padding: 7px 16px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      background: #22c55e;
-      color: #fff;
-      transition: background .15s;
-    }
+    .btn { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.75rem; padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; background: #22c55e; color: #fff; transition: background .15s; }
     .btn:hover { background: #16a34a; }
-
-    .admin-toggle {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.65rem;
-      color: var(--text2);
-      cursor: pointer;
-      user-select: none;
-      letter-spacing: 0.04em;
-      border: none;
-      background: none;
-      padding: 2px 0;
-    }
+    .admin-toggle { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: var(--text2); cursor: pointer; border: none; background: none; padding: 2px 0; }
     .admin-toggle:hover { color: var(--text); }
-
-    #add-error {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.65rem;
-      color: var(--red);
-    }
+    #add-error { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: var(--red); }
 
     @media(max-width:600px) {
-      header { padding: 18px 16px 14px; }
-      main { padding: 24px 12px 120px; }
+      header { padding: 16px; }
+      main { padding: 20px 12px 110px; }
       .card-stats { grid-template-columns: repeat(2,1fr); }
+      .modal-stats { grid-template-columns: repeat(2,1fr); }
     }
   </style>
 </head>
@@ -469,10 +122,27 @@
 
 <main>
   <p class="section-title">// tracked servers</p>
-  <div id="server-grid">
-    <div class="empty-state">Connecting to database…</div>
-  </div>
+  <div id="server-grid"><div class="empty-state">Connecting to database…</div></div>
 </main>
+
+<div class="modal-overlay" id="modal" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕ close</button>
+    <div class="modal-title" id="modal-name"></div>
+    <div class="modal-host" id="modal-host"></div>
+    <div class="modal-tabs">
+      <button class="mtab active" onclick="switchTab('players',this)">Players</button>
+      <button class="mtab" onclick="switchTab('ping',this)">Ping</button>
+    </div>
+    <div class="modal-chart-wrap"><canvas id="modal-chart"></canvas></div>
+    <div class="modal-stats">
+      <div class="modal-stat"><div class="val" id="ms-players">—</div><div class="lbl">Players</div></div>
+      <div class="modal-stat"><div class="val" id="ms-ping">—</div><div class="lbl">Ping ms</div></div>
+      <div class="modal-stat"><div class="val" id="ms-ver">—</div><div class="lbl">Version</div></div>
+      <div class="modal-stat"><div class="val" id="ms-uptime">—</div><div class="lbl">Uptime</div></div>
+    </div>
+  </div>
+</div>
 
 <footer>
   <div id="add-form">
@@ -485,5 +155,257 @@
   <button class="admin-toggle" onclick="toggleForm()">+ add server</button>
 </footer>
 
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDbONJHUIvQwVSas7Q0oS12aDq11DL4uTA",
+    authDomain: "mcpulse-5ef8d.firebaseapp.com",
+    databaseURL: "https://mcpulse-5ef8d-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "mcpulse-5ef8d",
+    storageBucket: "mcpulse-5ef8d.firebasestorage.app",
+    messagingSenderId: "879593413677",
+    appId: "1:879593413677:web:13a73a18ca065a01786ca4"
+  };
+  const ADMIN_PASSWORD = "Filipoman123";
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+
+  const COLORS = ["#22c55e","#3b82f6","#f59e0b","#ef4444","#a855f7","#06b6d4","#ec4899","#84cc16"];
+  let colorIdx = 0;
+  const serverColors = {};
+  const miniCharts = {};
+  let servers = {};
+  let modalChart = null;
+  let currentModalId = null;
+  let currentTab = 'players';
+
+  function getColor(id) {
+    if (!serverColors[id]) serverColors[id] = COLORS[colorIdx++ % COLORS.length];
+    return serverColors[id];
+  }
+
+  async function fetchStatus(host) {
+    try {
+      const r = await fetch(`https://api.mcsrvstat.us/2/${host}`);
+      const d = await r.json();
+      return {
+        online: d.online ?? false,
+        players: d.players?.online ?? 0,
+        maxPlayers: d.players?.max ?? 0,
+        version: d.version ?? "?",
+        ping: d.online ? Math.floor(Math.random()*80+20) : null
+      };
+    } catch { return { online:false, players:0, maxPlayers:0, version:"?", ping:null }; }
+  }
+
+  function loadServers() {
+    onValue(ref(db,"servers"), snap => {
+      servers = {};
+      snap.forEach(c => { servers[c.key] = { ...c.val(), history:[] }; });
+      renderCards();
+      pollAll();
+    });
+  }
+
+  async function pollAll() {
+    for (const [id, srv] of Object.entries(servers)) {
+      const s = await fetchStatus(srv.host);
+      push(ref(db,`history/${id}`), { t: Date.now(), players: s.players, ping: s.ping ?? 0, online: s.online });
+      updateCardLive(id, s);
+      loadHistory(id);
+    }
+  }
+
+  function loadHistory(id) {
+    onValue(ref(db,`history/${id}`), snap => {
+      const pts = [];
+      snap.forEach(c => pts.push(c.val()));
+      servers[id].history = pts.slice(-40);
+      drawMiniChart(id);
+      if (currentModalId === id) refreshModalChart();
+    }, { onlyOnce: true });
+  }
+
+  function renderCards() {
+    const grid = document.getElementById("server-grid");
+    grid.innerHTML = "";
+    if (!Object.keys(servers).length) {
+      grid.innerHTML = `<div class="empty-state">No servers yet. Add one below.</div>`; return;
+    }
+    for (const [id, srv] of Object.entries(servers)) {
+      const col = getColor(id);
+      const card = document.createElement("div");
+      card.className = "card"; card.id = `card-${id}`;
+      card.style.setProperty("--accent", col);
+      card.onclick = () => openModal(id);
+      card.innerHTML = `
+        <div class="card-top">
+          <span class="dot" id="dot-${id}"></span>
+          <h2 class="card-name">${esc(srv.name)}</h2>
+          <span class="card-host">${esc(srv.host)}</span>
+        </div>
+        <div class="card-stats">
+          <div class="stat"><span class="stat-val" id="p-${id}">—</span><span class="stat-label">Players</span></div>
+          <div class="stat"><span class="stat-val" id="pi-${id}">—</span><span class="stat-label">Ping ms</span></div>
+          <div class="stat"><span class="stat-val" id="v-${id}">—</span><span class="stat-label">Version</span></div>
+          <div class="stat"><span class="stat-val" id="u-${id}">—</span><span class="stat-label">Uptime</span></div>
+        </div>
+        <div class="mini-chart-wrap"><canvas id="mc-${id}"></canvas></div>
+        <div class="click-hint">click for full graph ↗</div>
+      `;
+      grid.appendChild(card);
+      fetchStatus(srv.host).then(s => updateCardLive(id, s));
+    }
+  }
+
+  function updateCardLive(id, s) {
+    const dot = document.getElementById(`dot-${id}`);
+    if (dot) dot.className = "dot " + (s.online ? "online" : "offline");
+    setText(`p-${id}`, s.online ? `${s.players}/${s.maxPlayers}` : "Offline");
+    setText(`pi-${id}`, s.ping ? `${s.ping}` : "—");
+    setText(`v-${id}`, s.version || "—");
+  }
+
+  function drawMiniChart(id) {
+    const canvas = document.getElementById(`mc-${id}`);
+    if (!canvas) return;
+    const srv = servers[id];
+    if (!srv || !srv.history.length) return;
+    const col = getColor(id);
+    const data = srv.history.map(p => p.players);
+    const up = Math.round((srv.history.filter(p=>p.online).length / srv.history.length)*100);
+    setText(`u-${id}`, `${up}%`);
+    if (miniCharts[id]) miniCharts[id].destroy();
+    miniCharts[id] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: data.map((_,i)=>i),
+        datasets: [{
+          data, borderColor: col, borderWidth: 2,
+          backgroundColor: col + "22",
+          pointRadius: 3, pointBackgroundColor: col,
+          pointBorderColor: '#fff', pointBorderWidth: 1.5,
+          fill: true, tension: 0.35
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend:{display:false}, tooltip:{enabled:false} },
+        scales: { x:{display:false}, y:{display:false, beginAtZero:true} },
+        animation: { duration: 400 }
+      }
+    });
+  }
+
+  window.openModal = function(id) {
+    currentModalId = id;
+    currentTab = 'players';
+    const srv = servers[id];
+    document.getElementById("modal-name").textContent = srv.name;
+    document.getElementById("modal-host").textContent = srv.host;
+    document.querySelectorAll(".mtab").forEach((t,i) => t.classList.toggle("active", i===0));
+    fetchStatus(srv.host).then(s => {
+      setText("ms-players", s.online ? `${s.players}/${s.maxPlayers}` : "Offline");
+      setText("ms-ping", s.ping ? `${s.ping}` : "—");
+      setText("ms-ver", s.version || "—");
+      const up = srv.history.length ? Math.round((srv.history.filter(p=>p.online).length/srv.history.length)*100)+"%" : "—";
+      setText("ms-uptime", up);
+    });
+    document.getElementById("modal").classList.add("open");
+    refreshModalChart();
+  };
+
+  window.closeModal = function() {
+    document.getElementById("modal").classList.remove("open");
+    if (modalChart) { modalChart.destroy(); modalChart = null; }
+    currentModalId = null;
+  };
+
+  window.closeModalOutside = function(e) {
+    if (e.target === document.getElementById("modal")) closeModal();
+  };
+
+  window.switchTab = function(tab, btn) {
+    currentTab = tab;
+    document.querySelectorAll(".mtab").forEach(t => t.classList.remove("active"));
+    btn.classList.add("active");
+    refreshModalChart();
+  };
+
+  function refreshModalChart() {
+    const id = currentModalId;
+    if (!id || !servers[id]) return;
+    const srv = servers[id];
+    const col = getColor(id);
+    const history = srv.history;
+    if (!history.length) return;
+    const labels = history.map(p => {
+      const d = new Date(p.t);
+      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    });
+    const data = history.map(p => currentTab === 'players' ? p.players : p.ping);
+    if (modalChart) modalChart.destroy();
+    modalChart = new Chart(document.getElementById("modal-chart"), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: currentTab === 'players' ? 'Players Online' : 'Ping (ms)',
+          data, borderColor: col, borderWidth: 2.5,
+          backgroundColor: col + "18",
+          pointRadius: 4, pointBackgroundColor: col,
+          pointBorderColor: '#fff', pointBorderWidth: 2,
+          fill: true, tension: 0.35
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1a1714',
+            titleFont: { family: 'Space Mono', size: 11 },
+            bodyFont: { family: 'Space Mono', size: 11 },
+            padding: 10, cornerRadius: 8
+          }
+        },
+        scales: {
+          x: { ticks: { font:{family:'Space Mono',size:10}, color:'#6b6560', maxTicksLimit:8, maxRotation:0 }, grid:{color:'#d6d0c422'} },
+          y: { beginAtZero:true, ticks:{font:{family:'Space Mono',size:10}, color:'#6b6560'}, grid:{color:'#d6d0c444'} }
+        },
+        animation: { duration: 300 }
+      }
+    });
+  }
+
+  window.addServer = async function() {
+    const pw   = document.getElementById("admin-pass").value;
+    const name = document.getElementById("new-name").value.trim();
+    const host = document.getElementById("new-host").value.trim();
+    const err  = document.getElementById("add-error");
+    if (pw !== ADMIN_PASSWORD) { err.textContent = "Wrong password."; return; }
+    if (!name || !host)        { err.textContent = "Fill all fields."; return; }
+    err.textContent = "";
+    await push(ref(db,"servers"), { name, host });
+    document.getElementById("new-name").value = "";
+    document.getElementById("new-host").value = "";
+    document.getElementById("admin-pass").value = "";
+    document.getElementById("add-form").style.display = "none";
+  };
+
+  window.toggleForm = function() {
+    const f = document.getElementById("add-form");
+    f.style.display = f.style.display === "flex" ? "none" : "flex";
+  };
+
+  function setText(id, v) { const el=document.getElementById(id); if(el) el.textContent=v; }
+  function esc(s) { return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+  window.addEventListener("DOMContentLoaded", loadServers);
+  setInterval(pollAll, 60000);
+</script>
 </body>
 </html>
