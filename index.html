@@ -268,8 +268,10 @@
     onValue(ref(db,`history/${id}`), snap => {
       const pts = [];
       snap.forEach(c => pts.push(c.val()));
-      servers[id].history = pts;            // all data for modal
-      servers[id].miniHistory = pts.slice(-40); // last 40 for card
+      pts.sort((a,b) => a.t - b.t); // ensure chronological order
+      if (!servers[id]) return;
+      servers[id].history = pts;
+      servers[id].miniHistory = pts.slice(-40);
       drawMiniChart(id);
       if (currentModalId === id) refreshModalChart();
     }, { onlyOnce: false });
@@ -340,11 +342,14 @@
     const canvas = document.getElementById(`mc-${id}`);
     if (!canvas) return;
     const srv = servers[id];
-    if (!srv || !srv.history.length) return;
+    if (!srv) return;
+    const all = srv.history || [];
+    const pts = (srv.miniHistory || all).slice(-40);
+    if (pts.length < 1) return;
     const col = getColor(id);
-    const pts = srv.miniHistory || srv.history;
-    const data = pts.map(p => p.players);
-    const all  = srv.history;
+    // pad single point so Chart.js draws a line
+    const raw = pts.map(p => p.players);
+    const data = raw.length === 1 ? [raw[0], raw[0]] : raw;
     const up = all.length ? Math.round((all.filter(p=>p.online).length / all.length)*100) : 0;
     setText(`u-${id}`, `${up}%`);
     if (miniCharts[id]) miniCharts[id].destroy();
