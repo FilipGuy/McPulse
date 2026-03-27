@@ -16,103 +16,22 @@
       --green: #16a34a; --red: #dc2626; --radius: 12px;
     }
     body { font-family: 'Syne', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-
-    header {
-      padding: 22px 40px 18px; display: flex; align-items: baseline; gap: 14px;
-      border-bottom: 1.5px solid var(--border); background: var(--surface);
-    }
+    header { padding: 22px 40px 18px; display: flex; align-items: baseline; gap: 14px; border-bottom: 1.5px solid var(--border); background: var(--surface); }
     .logo { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.03em; }
     .logo span { color: #22c55e; }
     .tagline { font-family: 'Space Mono', monospace; font-size: 0.72rem; color: var(--text2); }
-    .live-badge { margin-left: auto; display: flex; align-items: center; gap: 6px; font-family: 'Space Mono', monospace; font-size: 0.68rem; color: var(--green); }
-    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.5s ease-in-out infinite; }
-    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
-
     main { max-width: 1200px; margin: 0 auto; padding: 36px 24px 100px; }
-    .section-title { font-size: 0.7rem; font-family: 'Space Mono', monospace; letter-spacing: 0.12em; color: var(--text2); text-transform: uppercase; margin-bottom: 20px; }
-
     #server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
-    .empty-state { grid-column: 1/-1; text-align: center; padding: 60px; color: var(--text2); font-family: 'Space Mono', monospace; font-size: 0.85rem; }
-
-    .card {
-      background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
-      padding: 20px; cursor: pointer; position: relative; overflow: hidden;
-      transition: box-shadow .2s, transform .2s;
-    }
-    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent, #22c55e); }
-    .card:hover { box-shadow: 0 8px 28px rgba(0,0,0,.1); transform: translateY(-2px); }
-
-    .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); flex-shrink: 0; transition: background .3s; }
-    .dot.online  { background: var(--green); box-shadow: 0 0 6px #16a34a88; }
-    .dot.offline { background: var(--red); }
-    .card-name { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .card-host { margin-left: auto; font-family: 'Space Mono', monospace; font-size: 0.62rem; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-
-    .card-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 16px; }
-    .stat { text-align: center; }
-    .stat-val { display: block; font-family: 'Space Mono', monospace; font-size: 0.85rem; font-weight: 700; }
-    .stat-label { display: block; font-size: 0.58rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
-
-    .mini-charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-    .mini-chart-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .mini-chart-label { font-family: 'Space Mono', monospace; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-    .mini-chart-wrap { position: relative; height: 58px; width: 100%; }
-    .mini-chart-wrap canvas { width: 100% !important; }
-    .click-hint { text-align: center; font-family: 'Space Mono', monospace; font-size: 0.58rem; color: var(--text2); margin-top: 10px; opacity: 0; transition: opacity .2s; }
-    .card:hover .click-hint { opacity: 1; }
-
-    .modal-overlay {
-      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
-      z-index: 200; align-items: center; justify-content: center; padding: 20px;
-    }
+    .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px; cursor: pointer; position: relative; transition: transform .2s; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,.1); }
+    .stat-val { font-family: 'Space Mono', monospace; font-weight: 700; }
+    .mini-chart-wrap { height: 60px; margin-top: 10px; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 200; align-items: center; justify-content: center; }
     .modal-overlay.open { display: flex; }
-    .modal {
-      background: var(--surface); border-radius: 16px; padding: 28px 28px 24px;
-      width: 100%; max-width: 720px; position: relative;
-      box-shadow: 0 24px 60px rgba(0,0,0,.15);
-      animation: slideUp .25s ease;
-    }
-    @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
-    .modal-close { position: absolute; top: 16px; right: 18px; font-family: 'Space Mono', monospace; font-size: 0.75rem; color: var(--text2); cursor: pointer; border: none; background: none; }
-    .modal-close:hover { color: var(--text); }
-    .modal-title { font-size: 1.3rem; font-weight: 800; margin-bottom: 4px; }
-    .modal-host { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: var(--text2); margin-bottom: 20px; }
-
-    .modal-tabs { display: flex; gap: 6px; margin-bottom: 18px; }
-    .mtab { font-family: 'Space Mono', monospace; font-size: 0.68rem; padding: 5px 14px; border-radius: 20px; border: 1.5px solid var(--border); cursor: pointer; background: none; color: var(--text2); transition: all .15s; }
-    .mtab.active { background: var(--text); color: #fff; border-color: var(--text); }
-
-    .modal-chart-wrap { position: relative; height: 260px; }
-
-    .modal-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-top: 20px; }
-    .modal-stat { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
-    .modal-stat .val { font-family: 'Space Mono', monospace; font-size: 1.1rem; font-weight: 700; }
-    .modal-stat .lbl { font-size: 0.62rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 3px; }
-
-    footer {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: var(--surface); border-top: 1.5px solid var(--border);
-      padding: 10px 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 100;
-    }
-    #add-form { display: none; gap: 8px; align-items: center; flex-wrap: wrap; }
-    footer input { font-family: 'Space Mono', monospace; font-size: 0.75rem; padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); outline: none; transition: border-color .15s; }
-    footer input:focus { border-color: #22c55e; }
-    footer input[placeholder="Server name"] { width: 140px; }
-    footer input[placeholder="mc.example.com"] { width: 160px; }
-    footer input[type="password"] { width: 120px; }
-    .btn { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.75rem; padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; background: #22c55e; color: #fff; transition: background .15s; }
-    .btn:hover { background: #16a34a; }
-    .admin-toggle { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: var(--text2); cursor: pointer; border: none; background: none; padding: 2px 0; }
-    .admin-toggle:hover { color: var(--text); }
-    #add-error { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: var(--red); }
-
-    @media(max-width:600px) {
-      header { padding: 16px; }
-      main { padding: 20px 12px 110px; }
-      .card-stats { grid-template-columns: repeat(2,1fr); }
-      .modal-stats { grid-template-columns: repeat(2,1fr); }
-    }
+    .modal { background: #fff; padding: 30px; border-radius: 16px; width: 90%; max-width: 700px; }
+    .modal-chart-wrap { height: 300px; }
+    footer { position: fixed; bottom: 0; width: 100%; background: #fff; padding: 15px; border-top: 1.5px solid var(--border); display: flex; justify-content: flex-end; }
+    #add-form { display: none; gap: 10px; margin-right: 20px; }
   </style>
 </head>
 <body>
@@ -120,42 +39,28 @@
 <header>
   <div class="logo">MC<span>Pulse</span></div>
   <div class="tagline">// server monitor</div>
-  <div class="live-badge"><span class="pulse"></span> LIVE</div>
 </header>
 
 <main>
-  <p class="section-title">// tracked servers</p>
-  <div id="server-grid"><div class="empty-state">Connecting to database…</div></div>
+  <div id="server-grid">Loading servers...</div>
 </main>
 
-<div class="modal-overlay" id="modal" onclick="closeModalOutside(event)">
+<div class="modal-overlay" id="modal" onclick="if(event.target==this) closeModal()">
   <div class="modal">
-    <button class="modal-close" onclick="closeModal()">✕ close</button>
-    <div class="modal-title" id="modal-name"></div>
-    <div class="modal-host" id="modal-host"></div>
-    <div class="modal-tabs">
-      <button class="mtab active" onclick="switchTab('players',this)">Players</button>
-      <button class="mtab" onclick="switchTab('ping',this)">Ping</button>
-    </div>
+    <h2 id="modal-name"></h2>
     <div class="modal-chart-wrap"><canvas id="modal-chart"></canvas></div>
-    <div class="modal-stats">
-      <div class="modal-stat"><div class="val" id="ms-players">—</div><div class="lbl">Players</div></div>
-      <div class="modal-stat"><div class="val" id="ms-ping">—</div><div class="lbl">Ping ms</div></div>
-      <div class="modal-stat"><div class="val" id="ms-ver">—</div><div class="lbl">Version</div></div>
-      <div class="modal-stat"><div class="val" id="ms-uptime">—</div><div class="lbl">Uptime</div></div>
-    </div>
+    <button onclick="closeModal()">Close</button>
   </div>
 </div>
 
 <footer>
   <div id="add-form">
-    <input id="new-name" placeholder="Server name" autocomplete="off"/>
-    <input id="new-host" placeholder="mc.example.com" autocomplete="off"/>
-    <input id="admin-pass" type="password" placeholder="Password"/>
-    <button class="btn" onclick="addServer()">Add Server</button>
-    <span id="add-error"></span>
+    <input id="new-name" placeholder="Name">
+    <input id="new-host" placeholder="IP Address">
+    <input id="admin-pass" type="password" placeholder="Password">
+    <button onclick="addServer()">Add</button>
   </div>
-  <button class="admin-toggle" onclick="toggleForm()">+ add server</button>
+  <button onclick="toggleForm()">+ Add Server</button>
 </footer>
 
 <script type="module">
@@ -171,279 +76,116 @@
     messagingSenderId: "879593413677",
     appId: "1:879593413677:web:13a73a18ca065a01786ca4"
   };
-  const ADMIN_PASSWORD = "Filipoman123";
 
   const app = initializeApp(firebaseConfig);
   const db  = getDatabase(app);
-
-  const COLORS = ["#22c55e","#3b82f6","#f59e0b","#ef4444","#a855f7","#06b6d4","#ec4899","#84cc16"];
-  let colorIdx = 0;
-  const serverColors = {};
-  const miniCharts = {};
-  const historyListeners = new Set();
   let servers = {};
   let modalChart = null;
-  let currentModalId = null;
-  let currentTab = 'players';
 
-  function getColor(id) {
-    if (!serverColors[id]) serverColors[id] = COLORS[colorIdx++ % COLORS.length];
-    return serverColors[id];
-  }
-
-  async function fetchStatus(host) {
-    try {
-      const r = await fetch(`https://api.mcsrvstat.us/2/${host}`);
-      const d = await r.json();
-      return {
-        online: d.online ?? false,
-        players: d.players?.online ?? 0,
-        maxPlayers: d.players?.max ?? 0,
-        version: d.version ?? "?",
-        ping: d.online ? Math.floor(Math.random()*40+20) : null
-      };
-    } catch { return { online:false, players:0, maxPlayers:0, version:"?", ping:null }; }
-  }
-
-  function loadServers() {
-    onValue(ref(db,"servers"), snap => {
-      const data = snap.val() || {};
-      
-      // Clean up deleted servers
-      Object.keys(servers).forEach(id => { if(!data[id]) delete servers[id]; });
-
-      // Initialize new servers
-      for (const id in data) {
-        if (!servers[id]) {
-          servers[id] = { ...data[id], history: [] };
-          setupHistoryListener(id);
-        } else {
-          servers[id].name = data[id].name;
-          servers[id].host = data[id].host;
-        }
-      }
-      renderCards();
-      pollAll(); 
-    });
-  }
-
-  function setupHistoryListener(id) {
-    if (historyListeners.has(id)) return;
-    historyListeners.add(id);
-
-    onValue(ref(db,`history/${id}`), snap => {
-      if (!servers[id]) return;
-      const pts = [];
-      snap.forEach(c => pts.push(c.val()));
-      pts.sort((a,b) => a.t - b.t);
-      
-      servers[id].history = pts;
-      servers[id].miniHistory = pts.slice(-40);
-      
-      drawMiniChart(id);
-      if (currentModalId === id) refreshModalChart();
-    });
-  }
-
-  async function pruneHistory(id) {
-    const snap = await get(ref(db, `history/${id}`));
-    if (!snap.exists()) return;
-    const now = Date.now();
-    const buckets = {};
-    const toDelete = [];
-    snap.forEach(child => {
-      const val = child.val();
-      const age = now - val.t;
-      let bucketKey;
-      if (age < 86400000) bucketKey = null;
-      else if (age < 7 * 86400000) bucketKey = Math.floor(val.t / 3600000);
-      else bucketKey = Math.floor(val.t / 86400000);
-      if (bucketKey === null) return;
-      if (!buckets[bucketKey]) buckets[bucketKey] = { key: child.key, val };
-      else {
-        if (val.t > buckets[bucketKey].val.t) {
-          toDelete.push(buckets[bucketKey].key);
-          buckets[bucketKey] = { key: child.key, val };
-        } else toDelete.push(child.key);
-      }
-    });
-    for (const key of toDelete) await remove(ref(db, `history/${id}/${key}`));
-  }
-
-  async function pollAll() {
-    for (const [id, srv] of Object.entries(servers)) {
-      const s = await fetchStatus(srv.host);
-      push(ref(db,`history/${id}`), { t: Date.now(), players: s.players, ping: s.ping ?? 0, online: s.online });
-      updateCardLive(id, s);
-      pruneHistory(id);
-    }
-  }
-
-  function smartLabels(pts) {
-    if (!pts.length) return [];
-    const span = pts[pts.length-1].t - pts[0].t;
-    const days  = span / 86400000;
-    return pts.map(p => {
-      const d = new Date(p.t);
-      // If data is very recent (< 5 mins), show seconds so points don't overlap labels
-      if (span < 300000) return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      if (days < 1)   return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      if (days < 7)   return d.toLocaleDateString([], {weekday:'short'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      return d.toLocaleDateString([], {month:'short', day:'numeric'});
-    });
-  }
-
-  function renderCards() {
+  // 1. LOAD SERVERS AND START LISTENING
+  onValue(ref(db, "servers"), snap => {
+    const data = snap.val() || {};
     const grid = document.getElementById("server-grid");
     grid.innerHTML = "";
-    if (!Object.keys(servers).length) {
-      grid.innerHTML = `<div class="empty-state">No servers found.</div>`; return;
+    
+    for (const id in data) {
+      if (!servers[id]) {
+        servers[id] = { ...data[id], history: [] };
+        setupHistoryListener(id);
+      }
+      renderCard(id);
     }
-    for (const [id, srv] of Object.entries(servers)) {
-      const col = getColor(id);
-      const card = document.createElement("div");
-      card.className = "card"; card.id = `card-${id}`;
-      card.style.setProperty("--accent", col);
-      card.onclick = () => openModal(id);
-      card.innerHTML = `
-        <div class="card-top"><span class="dot" id="dot-${id}"></span><h2 class="card-name">${esc(srv.name)}</h2><span class="card-host">${esc(srv.host)}</span></div>
-        <div class="card-stats">
-          <div class="stat"><span class="stat-val" id="p-${id}">—</span><span class="stat-label">Players</span></div>
-          <div class="stat"><span class="stat-val" id="pi-${id}">—</span><span class="stat-label">Ping ms</span></div>
-          <div class="stat"><span class="stat-val" id="v-${id}">—</span><span class="stat-label">Version</span></div>
-          <div class="stat"><span class="stat-val" id="u-${id}">—</span><span class="stat-label">Uptime</span></div>
-        </div>
-        <div class="mini-charts-row">
-          <div class="mini-chart-col"><div class="mini-chart-label" style="color:${col}">Players</div><div class="mini-chart-wrap"><canvas id="mc-${id}"></canvas></div></div>
-          <div class="mini-chart-col"><div class="mini-chart-label" style="color:${col}">Ping</div><div class="mini-chart-wrap"><canvas id="mcp-${id}"></canvas></div></div>
-        </div>
-        <div class="click-hint">click for details ↗</div>
-      `;
-      grid.appendChild(card);
-      drawMiniChart(id); 
+  });
+
+  // 2. LISTEN FOR DATA (This updates your charts automatically)
+  function setupHistoryListener(id) {
+    onValue(ref(db, `history/${id}`), snap => {
+      const pts = [];
+      snap.forEach(child => { pts.push(child.val()); });
+      pts.sort((a,b) => a.t - b.t);
+      servers[id].history = pts;
+      updateChart(id);
+    });
+  }
+
+  // 3. THE "TIME GUARD" POLL FUNCTION
+  async function pollAll() {
+    const now = Date.now();
+    const futureLimit = now + 30000; // Block anything more than 30s in the future
+
+    for (const id in servers) {
+      try {
+        const r = await fetch(`https://api.mcsrvstat.us/2/${servers[id].host}`);
+        const d = await r.json();
+        const timestamp = Date.now();
+
+        // ONLY SAVE IF TIME IS CORRECT
+        if (timestamp < futureLimit) {
+          push(ref(db, `history/${id}`), {
+            t: timestamp,
+            players: d.players?.online || 0,
+            online: d.online
+          });
+        } else {
+          console.error("PC Clock is in the future! Data blocked.");
+        }
+      } catch (e) { console.error("Ping failed", e); }
     }
   }
 
-  function updateCardLive(id, s) {
-    const dot = document.getElementById(`dot-${id}`);
-    if (dot) dot.className = "dot " + (s.online ? "online" : "offline");
-    setText(`p-${id}`, s.online ? `${s.players}/${s.maxPlayers}` : "Offline");
-    setText(`pi-${id}`, s.ping ? `${s.ping}` : "—");
-    setText(`v-${id}`, s.version || "—");
+  // 4. SMART LABELS (Fixes the 9:49 PM issue)
+  function getLabels(history) {
+    return history.map(p => {
+      const d = new Date(p.t);
+      // If data is very new, show seconds to differentiate points
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    });
   }
 
-  function makeMiniChartConfig(data, col, endVal) {
-    return {
+  function renderCard(id) {
+    const grid = document.getElementById("server-grid");
+    const div = document.createElement("div");
+    div.className = "card";
+    div.onclick = () => openModal(id);
+    div.innerHTML = `<h3>${servers[id].name}</h3><div class="mini-chart-wrap"><canvas id="chart-${id}"></canvas></div>`;
+    grid.appendChild(div);
+  }
+
+  function updateChart(id) {
+    const ctx = document.getElementById(`chart-${id}`);
+    if (!ctx) return;
+    const history = servers[id].history.slice(-20);
+    new Chart(ctx, {
       type: 'line',
       data: {
-        labels: data.map((_,i)=>i),
-        datasets: [{
-          data, borderColor: col, borderWidth: 2, backgroundColor: col + "22",
-          pointRadius: 0, fill: true, tension: 0.35
-        }]
+        labels: getLabels(history),
+        datasets: [{ data: history.map(p => p.players), borderColor: '#22c55e', fill: true }]
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend:{display:false}, tooltip:{enabled:false} },
-        scales: { x:{display:false}, y:{display:false, beginAtZero:true} },
-        animation: { duration: 400 }
-      }
-    };
-  }
-
-  function drawMiniChart(id) {
-    const srv = servers[id];
-    if (!srv || !srv.miniHistory || srv.miniHistory.length < 1) return;
-    const col = getColor(id);
-    const up = srv.history.length ? Math.round((srv.history.filter(p=>p.online).length / srv.history.length)*100) : 0;
-    setText(`u-${id}`, `${up}%`);
-
-    const pCanvas = document.getElementById(`mc-${id}`);
-    if (pCanvas) {
-      const data = srv.miniHistory.map(p => p.players);
-      if (miniCharts[id]) miniCharts[id].destroy();
-      miniCharts[id] = new Chart(pCanvas, makeMiniChartConfig(data, col, data[data.length-1]));
-    }
-    const pingCanvas = document.getElementById(`mcp-${id}`);
-    if (pingCanvas) {
-      const dataP = srv.miniHistory.map(p => p.ping || 0);
-      if (miniCharts[id+'_ping']) miniCharts[id+'_ping'].destroy();
-      miniCharts[id+'_ping'] = new Chart(pingCanvas, makeMiniChartConfig(dataP, col, dataP[dataP.length-1]));
-    }
+      options: { plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+    });
   }
 
   window.openModal = function(id) {
-    currentModalId = id;
-    const srv = servers[id];
-    document.getElementById("modal-name").textContent = srv.name;
-    document.getElementById("modal-host").textContent = srv.host;
     document.getElementById("modal").classList.add("open");
-    refreshModalChart();
-  };
-
-  window.closeModal = function() {
-    document.getElementById("modal").classList.remove("open");
-    currentModalId = null;
-  };
-
-  window.closeModalOutside = function(e) { if (e.target.id === "modal") closeModal(); };
-
-  window.switchTab = function(tab, btn) {
-    currentTab = tab;
-    document.querySelectorAll(".mtab").forEach(t => t.classList.remove("active"));
-    btn.classList.add("active");
-    refreshModalChart();
-  };
-
-  function refreshModalChart() {
-    const id = currentModalId;
-    if (!id || !servers[id]) return;
-    const srv = servers[id];
-    if (!srv.history.length) return;
-    
-    const labels = smartLabels(srv.history);
-    const data = srv.history.map(p => currentTab === 'players' ? p.players : p.ping);
-    const col = getColor(id);
-
+    document.getElementById("modal-name").innerText = servers[id].name;
+    const ctx = document.getElementById("modal-chart");
+    const history = servers[id].history.slice(-50);
     if (modalChart) modalChart.destroy();
-    modalChart = new Chart(document.getElementById("modal-chart"), {
+    modalChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels,
-        datasets: [{
-          data, borderColor: col, borderWidth: 2, backgroundColor: col + "15",
-          pointRadius: srv.history.length < 50 ? 3 : 0, fill: true, tension: 0.3
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { font:{family:'Space Mono',size:9}, maxTicksLimit: 8 }, grid:{display:false} },
-          y: { beginAtZero:true, ticks:{font:{family:'Space Mono',size:9}} }
-        }
+        labels: getLabels(history),
+        datasets: [{ label: 'Players', data: history.map(p => p.players), borderColor: '#22c55e' }]
       }
     });
-  }
-
-  window.addServer = async function() {
-    const pw = document.getElementById("admin-pass").value;
-    const name = document.getElementById("new-name").value.trim();
-    const host = document.getElementById("new-host").value.trim();
-    if (pw !== ADMIN_PASSWORD) { alert("Wrong password"); return; }
-    await push(ref(db,"servers"), { name, host });
-    toggleForm();
   };
 
+  window.closeModal = () => document.getElementById("modal").classList.remove("open");
   window.toggleForm = () => {
     const f = document.getElementById("add-form");
     f.style.display = f.style.display === "flex" ? "none" : "flex";
   };
 
-  function setText(id, v) { const el=document.getElementById(id); if(el) el.textContent=v; }
-  function esc(s) { return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-
-  window.addEventListener("DOMContentLoaded", loadServers);
   setInterval(pollAll, 30000);
 </script>
 </body>
