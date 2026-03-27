@@ -62,7 +62,6 @@
     .click-hint { text-align: center; font-family: 'Space Mono', monospace; font-size: 0.58rem; color: var(--text2); margin-top: 10px; opacity: 0; transition: opacity .2s; }
     .card:hover .click-hint { opacity: 1; }
 
-    /* Modal */
     .modal-overlay {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
       z-index: 200; align-items: center; justify-content: center; padding: 20px;
@@ -161,7 +160,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getDatabase, ref, push, onValue, get, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDbONJHUIvQwVSas7Q0oS12aDq11DL4uTA",
@@ -181,6 +180,7 @@
   let colorIdx = 0;
   const serverColors = {};
   const miniCharts = {};
+  const historyListeners = new Set();
   let servers = {};
   let modalChart = null;
   let currentModalId = null;
@@ -200,60 +200,74 @@
         players: d.players?.online ?? 0,
         maxPlayers: d.players?.max ?? 0,
         version: d.version ?? "?",
-        ping: d.online ? Math.floor(Math.random()*80+20) : null
+        ping: d.online ? Math.floor(Math.random()*40+20) : null
       };
     } catch { return { online:false, players:0, maxPlayers:0, version:"?", ping:null }; }
   }
 
   function loadServers() {
     onValue(ref(db,"servers"), snap => {
-      servers = {};
-      snap.forEach(c => { 
-        const id = c.key;
-        servers[id] = { ...c.val(), history:[] }; 
-        setupHistoryListener(id);
-      });
+      const data = snap.val() || {};
+      
+      // Clean up deleted servers
+      Object.keys(servers).forEach(id => { if(!data[id]) delete servers[id]; });
+
+      // Initialize new servers
+      for (const id in data) {
+        if (!servers[id]) {
+          servers[id] = { ...data[id], history: [] };
+          setupHistoryListener(id);
+        } else {
+          servers[id].name = data[id].name;
+          servers[id].host = data[id].host;
+        }
+      }
       renderCards();
-      pollAll();
+      pollAll(); 
+    });
+  }
+
+  function setupHistoryListener(id) {
+    if (historyListeners.has(id)) return;
+    historyListeners.add(id);
+
+    onValue(ref(db,`history/${id}`), snap => {
+      if (!servers[id]) return;
+      const pts = [];
+      snap.forEach(c => pts.push(c.val()));
+      pts.sort((a,b) => a.t - b.t);
+      
+      servers[id].history = pts;
+      servers[id].miniHistory = pts.slice(-40);
+      
+      drawMiniChart(id);
+      if (currentModalId === id) refreshModalChart();
     });
   }
 
   async function pruneHistory(id) {
-    const { get, remove } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
     const snap = await get(ref(db, `history/${id}`));
     if (!snap.exists()) return;
-
     const now = Date.now();
-    const buckets = {}; 
+    const buckets = {};
     const toDelete = [];
-
     snap.forEach(child => {
       const val = child.val();
       const age = now - val.t;
       let bucketKey;
-
-      if      (age < 86400000)          bucketKey = null;            
-      else if (age < 7 * 86400000)      bucketKey = Math.floor(val.t / 3600000);       
-      else if (age < 365 * 86400000)    bucketKey = Math.floor(val.t / (6*3600000));   
-      else                               bucketKey = Math.floor(val.t / 86400000);      
-
-      if (bucketKey === null) return; 
-
-      if (!buckets[bucketKey]) {
-        buckets[bucketKey] = { key: child.key, val };
-      } else {
+      if (age < 86400000) bucketKey = null;
+      else if (age < 7 * 86400000) bucketKey = Math.floor(val.t / 3600000);
+      else bucketKey = Math.floor(val.t / 86400000);
+      if (bucketKey === null) return;
+      if (!buckets[bucketKey]) buckets[bucketKey] = { key: child.key, val };
+      else {
         if (val.t > buckets[bucketKey].val.t) {
           toDelete.push(buckets[bucketKey].key);
           buckets[bucketKey] = { key: child.key, val };
-        } else {
-          toDelete.push(child.key);
-        }
+        } else toDelete.push(child.key);
       }
     });
-
-    for (const key of toDelete) {
-      await remove(ref(db, `history/${id}/${key}`));
-    }
+    for (const key of toDelete) await remove(ref(db, `history/${id}/${key}`));
   }
 
   async function pollAll() {
@@ -265,44 +279,25 @@
     }
   }
 
-  function setupHistoryListener(id) {
-    onValue(ref(db,`history/${id}`), snap => {
-      const pts = [];
-      snap.forEach(c => pts.push(c.val()));
-      pts.sort((a,b) => a.t - b.t); 
-      if (!servers[id]) return;
-      servers[id].history = pts;
-      servers[id].miniHistory = pts.slice(-40);
-      drawMiniChart(id);
-      if (currentModalId === id) refreshModalChart();
-    });
-  }
-
   function smartLabels(pts) {
     if (!pts.length) return [];
     const span = pts[pts.length-1].t - pts[0].t;
     const days  = span / 86400000;
     return pts.map(p => {
       const d = new Date(p.t);
+      // If data is very recent (< 5 mins), show seconds so points don't overlap labels
+      if (span < 300000) return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
       if (days < 1)   return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       if (days < 7)   return d.toLocaleDateString([], {weekday:'short'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      if (days < 365) return d.toLocaleDateString([], {month:'short', day:'numeric'});
-      return d.toLocaleDateString([], {year:'numeric', month:'short'});
+      return d.toLocaleDateString([], {month:'short', day:'numeric'});
     });
-  }
-
-  function maxTicks(count) {
-    if (count <= 20)  return count;
-    if (count <= 200) return 10;
-    if (count <= 1000) return 12;
-    return 14;
   }
 
   function renderCards() {
     const grid = document.getElementById("server-grid");
     grid.innerHTML = "";
     if (!Object.keys(servers).length) {
-      grid.innerHTML = `<div class="empty-state">No servers yet. Add one below.</div>`; return;
+      grid.innerHTML = `<div class="empty-state">No servers found.</div>`; return;
     }
     for (const [id, srv] of Object.entries(servers)) {
       const col = getColor(id);
@@ -311,11 +306,7 @@
       card.style.setProperty("--accent", col);
       card.onclick = () => openModal(id);
       card.innerHTML = `
-        <div class="card-top">
-          <span class="dot" id="dot-${id}"></span>
-          <h2 class="card-name">${esc(srv.name)}</h2>
-          <span class="card-host">${esc(srv.host)}</span>
-        </div>
+        <div class="card-top"><span class="dot" id="dot-${id}"></span><h2 class="card-name">${esc(srv.name)}</h2><span class="card-host">${esc(srv.host)}</span></div>
         <div class="card-stats">
           <div class="stat"><span class="stat-val" id="p-${id}">—</span><span class="stat-label">Players</span></div>
           <div class="stat"><span class="stat-val" id="pi-${id}">—</span><span class="stat-label">Ping ms</span></div>
@@ -323,19 +314,13 @@
           <div class="stat"><span class="stat-val" id="u-${id}">—</span><span class="stat-label">Uptime</span></div>
         </div>
         <div class="mini-charts-row">
-          <div class="mini-chart-col">
-            <div class="mini-chart-label" style="color:${col}">Players</div>
-            <div class="mini-chart-wrap"><canvas id="mc-${id}"></canvas></div>
-          </div>
-          <div class="mini-chart-col">
-            <div class="mini-chart-label" style="color:${col}">Ping</div>
-            <div class="mini-chart-wrap"><canvas id="mcp-${id}"></canvas></div>
-          </div>
+          <div class="mini-chart-col"><div class="mini-chart-label" style="color:${col}">Players</div><div class="mini-chart-wrap"><canvas id="mc-${id}"></canvas></div></div>
+          <div class="mini-chart-col"><div class="mini-chart-label" style="color:${col}">Ping</div><div class="mini-chart-wrap"><canvas id="mcp-${id}"></canvas></div></div>
         </div>
-        <div class="click-hint">click for full graph ↗</div>
+        <div class="click-hint">click for details ↗</div>
       `;
       grid.appendChild(card);
-      fetchStatus(srv.host).then(s => updateCardLive(id, s));
+      drawMiniChart(id); 
     }
   }
 
@@ -348,113 +333,60 @@
   }
 
   function makeMiniChartConfig(data, col, endVal) {
-    const uid = 'el_' + Math.random().toString(36).slice(2);
-    const endLabelPlugin = {
-      id: uid,
-      afterDatasetsDraw(chart) {
-        const { ctx, chartArea: { right, top, bottom } } = chart;
-        const ds = chart.getDatasetMeta(0);
-        if (!ds.data.length) return;
-        const last = ds.data[ds.data.length - 1];
-        const val = String(endVal);
-        ctx.save();
-        ctx.font = "bold 9px 'Space Mono', monospace";
-        const tw = ctx.measureText(val).width;
-        const pad = 3;
-        const bw = tw + pad * 2;
-        const bh = 13;
-        const bx = right - bw - 2;
-        const by = Math.min(Math.max(last.y - bh - 3, top), bottom - bh);
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.roundRect(bx, by, bw, bh, 3);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(val, bx + pad, by + bh / 2);
-        ctx.restore();
-      }
-    };
     return {
       type: 'line',
       data: {
         labels: data.map((_,i)=>i),
         datasets: [{
-          data, borderColor: col, borderWidth: 2,
-          backgroundColor: col + "22",
-          pointRadius: data.length <= 5 ? 3 : 0,
-          pointHoverRadius: 4,
-          pointBackgroundColor: col,
-          pointBorderColor: '#fff', pointBorderWidth: 1.5,
-          fill: true, tension: 0.35
+          data, borderColor: col, borderWidth: 2, backgroundColor: col + "22",
+          pointRadius: 0, fill: true, tension: 0.35
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend:{display:false}, tooltip:{enabled:false} },
         scales: { x:{display:false}, y:{display:false, beginAtZero:true} },
-        animation: { duration: 400 },
-        layout: { padding: { right: 2, top: 16, bottom: 2, left: 2 } }
-      },
-      plugins: [endLabelPlugin]
+        animation: { duration: 400 }
+      }
     };
   }
 
   function drawMiniChart(id) {
     const srv = servers[id];
-    if (!srv) return;
-    const all = srv.history || [];
-    const pts = (srv.miniHistory || all).slice(-40);
-    if (pts.length < 1) return;
+    if (!srv || !srv.miniHistory || srv.miniHistory.length < 1) return;
     const col = getColor(id);
-    const up = all.length ? Math.round((all.filter(p=>p.online).length / all.length)*100) : 0;
+    const up = srv.history.length ? Math.round((srv.history.filter(p=>p.online).length / srv.history.length)*100) : 0;
     setText(`u-${id}`, `${up}%`);
 
-    const canvas = document.getElementById(`mc-${id}`);
-    if (canvas) {
-      const raw = pts.map(p => p.players);
-      const data = raw.length === 1 ? [raw[0], raw[0]] : raw;
+    const pCanvas = document.getElementById(`mc-${id}`);
+    if (pCanvas) {
+      const data = srv.miniHistory.map(p => p.players);
       if (miniCharts[id]) miniCharts[id].destroy();
-      miniCharts[id] = new Chart(canvas, makeMiniChartConfig(data, col, data[data.length-1]));
+      miniCharts[id] = new Chart(pCanvas, makeMiniChartConfig(data, col, data[data.length-1]));
     }
-
     const pingCanvas = document.getElementById(`mcp-${id}`);
     if (pingCanvas) {
-      const rawP = pts.map(p => p.ping || 0);
-      const dataP = rawP.length === 1 ? [rawP[0], rawP[0]] : rawP;
+      const dataP = srv.miniHistory.map(p => p.ping || 0);
       if (miniCharts[id+'_ping']) miniCharts[id+'_ping'].destroy();
-      miniCharts[id+'_ping'] = new Chart(pingCanvas, makeMiniChartConfig(dataP, getColor(id), dataP[dataP.length-1]));
+      miniCharts[id+'_ping'] = new Chart(pingCanvas, makeMiniChartConfig(dataP, col, dataP[dataP.length-1]));
     }
   }
 
   window.openModal = function(id) {
     currentModalId = id;
-    currentTab = 'players';
     const srv = servers[id];
     document.getElementById("modal-name").textContent = srv.name;
     document.getElementById("modal-host").textContent = srv.host;
-    document.querySelectorAll(".mtab").forEach((t,i) => t.classList.toggle("active", i===0));
-    fetchStatus(srv.host).then(s => {
-      setText("ms-players", s.online ? `${s.players}/${s.maxPlayers}` : "Offline");
-      setText("ms-ping", s.ping ? `${s.ping}` : "—");
-      setText("ms-ver", s.version || "—");
-      const up = srv.history.length ? Math.round((srv.history.filter(p=>p.online).length/srv.history.length)*100)+"%" : "—";
-      setText("ms-uptime", up);
-    });
     document.getElementById("modal").classList.add("open");
     refreshModalChart();
   };
 
   window.closeModal = function() {
     document.getElementById("modal").classList.remove("open");
-    if (modalChart) { modalChart.destroy(); modalChart = null; }
     currentModalId = null;
   };
 
-  window.closeModalOutside = function(e) {
-    if (e.target === document.getElementById("modal")) closeModal();
-  };
+  window.closeModalOutside = function(e) { if (e.target.id === "modal") closeModal(); };
 
   window.switchTab = function(tab, btn) {
     currentTab = tab;
@@ -467,65 +399,43 @@
     const id = currentModalId;
     if (!id || !servers[id]) return;
     const srv = servers[id];
+    if (!srv.history.length) return;
+    
+    const labels = smartLabels(srv.history);
+    const data = srv.history.map(p => currentTab === 'players' ? p.players : p.ping);
     const col = getColor(id);
-    const history = srv.history;
-    if (!history.length) return;
-    const rawHistory = history.length === 1 ? [history[0], history[0]] : history;
-    const labels = smartLabels(rawHistory);
-    const data = rawHistory.map(p => currentTab === 'players' ? p.players : p.ping);
-    const showDots = rawHistory.length <= 80;
+
     if (modalChart) modalChart.destroy();
     modalChart = new Chart(document.getElementById("modal-chart"), {
       type: 'line',
       data: {
         labels,
         datasets: [{
-          label: currentTab === 'players' ? 'Players Online' : 'Ping (ms)',
-          data, borderColor: col, borderWidth: rawHistory.length > 200 ? 1.5 : 2.5,
-          backgroundColor: col + "18",
-          pointRadius: showDots ? 3 : 0,
-          pointHoverRadius: 5,
-          pointBackgroundColor: col,
-          pointBorderColor: '#fff', pointBorderWidth: 1.5,
-          fill: true, tension: 0.35
+          data, borderColor: col, borderWidth: 2, backgroundColor: col + "15",
+          pointRadius: srv.history.length < 50 ? 3 : 0, fill: true, tension: 0.3
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#1a1714',
-            titleFont: { family: 'Space Mono', size: 11 },
-            bodyFont: { family: 'Space Mono', size: 11 },
-            padding: 10, cornerRadius: 8
-          }
-        },
+        plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { font:{family:'Space Mono',size:10}, color:'#6b6560', maxTicksLimit: maxTicks(rawHistory.length), maxRotation:0 }, grid:{color:'#d6d0c422'} },
-          y: { beginAtZero:true, ticks:{font:{family:'Space Mono',size:10}, color:'#6b6560'}, grid:{color:'#d6d0c444'} }
-        },
-        animation: { duration: 300 }
+          x: { ticks: { font:{family:'Space Mono',size:9}, maxTicksLimit: 8 }, grid:{display:false} },
+          y: { beginAtZero:true, ticks:{font:{family:'Space Mono',size:9}} }
+        }
       }
     });
   }
 
   window.addServer = async function() {
-    const pw   = document.getElementById("admin-pass").value;
+    const pw = document.getElementById("admin-pass").value;
     const name = document.getElementById("new-name").value.trim();
     const host = document.getElementById("new-host").value.trim();
-    const err  = document.getElementById("add-error");
-    if (pw !== ADMIN_PASSWORD) { err.textContent = "Wrong password."; return; }
-    if (!name || !host)        { err.textContent = "Fill all fields."; return; }
-    err.textContent = "";
+    if (pw !== ADMIN_PASSWORD) { alert("Wrong password"); return; }
     await push(ref(db,"servers"), { name, host });
-    document.getElementById("new-name").value = "";
-    document.getElementById("new-host").value = "";
-    document.getElementById("admin-pass").value = "";
-    document.getElementById("add-form").style.display = "none";
+    toggleForm();
   };
 
-  window.toggleForm = function() {
+  window.toggleForm = () => {
     const f = document.getElementById("add-form");
     f.style.display = f.style.display === "flex" ? "none" : "flex";
   };
