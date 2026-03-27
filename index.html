@@ -208,22 +208,24 @@
   function loadServers() {
     onValue(ref(db,"servers"), snap => {
       servers = {};
-      snap.forEach(c => { servers[c.key] = { ...c.val(), history:[] }; });
+      snap.forEach(c => { 
+        const id = c.key;
+        servers[id] = { ...c.val(), history:[] }; 
+        // FIX: Start history listener immediately upon loading server metadata
+        loadHistory(id);
+      });
       renderCards();
       pollAll();
     });
   }
 
-  // ── Data pruning ─────────────────────────────────────────────────────────
-  // Keeps recent data dense, thins out old data to save Firebase storage.
-  // Buckets: <24h = every point | 1-7d = 1/hr | 7d-1yr = 1/6hr | 1yr+ = 1/day
   async function pruneHistory(id) {
     const { get, remove } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
     const snap = await get(ref(db, `history/${id}`));
     if (!snap.exists()) return;
 
     const now = Date.now();
-    const buckets = {}; // bucketKey → { key, val } keep newest in bucket
+    const buckets = {}; 
     const toDelete = [];
 
     snap.forEach(child => {
@@ -231,17 +233,16 @@
       const age = now - val.t;
       let bucketKey;
 
-      if      (age < 86400000)          bucketKey = null;            // <24h: keep all
-      else if (age < 7 * 86400000)      bucketKey = Math.floor(val.t / 3600000);       // 1-7d: 1/hr
-      else if (age < 365 * 86400000)    bucketKey = Math.floor(val.t / (6*3600000));   // 7d-1yr: 1/6hr
-      else                               bucketKey = Math.floor(val.t / 86400000);      // 1yr+: 1/day
+      if      (age < 86400000)          bucketKey = null;            
+      else if (age < 7 * 86400000)      bucketKey = Math.floor(val.t / 3600000);       
+      else if (age < 365 * 86400000)    bucketKey = Math.floor(val.t / (6*3600000));   
+      else                               bucketKey = Math.floor(val.t / 86400000);      
 
-      if (bucketKey === null) return; // keep
+      if (bucketKey === null) return; 
 
       if (!buckets[bucketKey]) {
         buckets[bucketKey] = { key: child.key, val };
       } else {
-        // keep the newer one, delete the older
         if (val.t > buckets[bucketKey].val.t) {
           toDelete.push(buckets[bucketKey].key);
           buckets[bucketKey] = { key: child.key, val };
@@ -254,34 +255,32 @@
     for (const key of toDelete) {
       await remove(ref(db, `history/${id}/${key}`));
     }
-    if (toDelete.length) console.log(`Pruned ${toDelete.length} old snapshots for ${id}`);
   }
 
   async function pollAll() {
     for (const [id, srv] of Object.entries(servers)) {
       const s = await fetchStatus(srv.host);
+      // FIX: Write to DB, but don't re-invoke listener setup here
       push(ref(db,`history/${id}`), { t: Date.now(), players: s.players, ping: s.ping ?? 0, online: s.online });
       updateCardLive(id, s);
-      loadHistory(id);
-      // prune old data to stay within free tier limits
       pruneHistory(id);
     }
   }
 
   function loadHistory(id) {
+    // FIX: This listener now runs continuously for each server once established
     onValue(ref(db,`history/${id}`), snap => {
       const pts = [];
       snap.forEach(c => pts.push(c.val()));
-      pts.sort((a,b) => a.t - b.t); // ensure chronological order
+      pts.sort((a,b) => a.t - b.t); 
       if (!servers[id]) return;
       servers[id].history = pts;
       servers[id].miniHistory = pts.slice(-40);
       drawMiniChart(id);
       if (currentModalId === id) refreshModalChart();
-    }, { onlyOnce: false });
+    });
   }
 
-  // Smart label format based on time span
   function smartLabels(pts) {
     if (!pts.length) return [];
     const span = pts[pts.length-1].t - pts[0].t;
@@ -367,15 +366,12 @@
         const pad = 3;
         const bw = tw + pad * 2;
         const bh = 13;
-        // Position: float above the last point, clamped within chart
         const bx = right - bw - 2;
         const by = Math.min(Math.max(last.y - bh - 3, top), bottom - bh);
-        // pill
         ctx.fillStyle = col;
         ctx.beginPath();
         ctx.roundRect(bx, by, bw, bh, 3);
         ctx.fill();
-        // text
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -418,7 +414,6 @@
     const up = all.length ? Math.round((all.filter(p=>p.online).length / all.length)*100) : 0;
     setText(`u-${id}`, `${up}%`);
 
-    // Players chart
     const canvas = document.getElementById(`mc-${id}`);
     if (canvas) {
       const raw = pts.map(p => p.players);
@@ -427,12 +422,10 @@
       miniCharts[id] = new Chart(canvas, makeMiniChartConfig(data, col, data[data.length-1]));
     }
 
-    // Ping chart
     const pingCanvas = document.getElementById(`mcp-${id}`);
     if (pingCanvas) {
       const rawP = pts.map(p => p.ping || 0);
       const dataP = rawP.length === 1 ? [rawP[0], rawP[0]] : rawP;
-      const pingCol = getColor(id) + "cc"; // slightly transparent variant
       if (miniCharts[id+'_ping']) miniCharts[id+'_ping'].destroy();
       miniCharts[id+'_ping'] = new Chart(pingCanvas, makeMiniChartConfig(dataP, getColor(id), dataP[dataP.length-1]));
     }
@@ -480,11 +473,9 @@
     const col = getColor(id);
     const history = srv.history;
     if (!history.length) return;
-    // pad to at least 2 points so Chart.js draws a line
     const rawHistory = history.length === 1 ? [history[0], history[0]] : history;
     const labels = smartLabels(rawHistory);
     const data = rawHistory.map(p => currentTab === 'players' ? p.players : p.ping);
-    // auto-thin points: show dots only if not too many
     const showDots = rawHistory.length <= 80;
     if (modalChart) modalChart.destroy();
     modalChart = new Chart(document.getElementById("modal-chart"), {
