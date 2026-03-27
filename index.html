@@ -54,10 +54,11 @@
     .stat-val { display: block; font-family: 'Space Mono', monospace; font-size: 0.85rem; font-weight: 700; }
     .stat-label { display: block; font-size: 0.58rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
 
-    .mini-charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .mini-chart-col { display: flex; flex-direction: column; gap: 3px; }
-    .mini-chart-label { font-family: 'Space Mono', monospace; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-    .mini-chart-wrap { position: relative; height: 60px; }
+    .mini-charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+    .mini-chart-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .mini-chart-label { font-family: 'Space Mono', monospace; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .mini-chart-wrap { position: relative; height: 58px; width: 100%; }
+    .mini-chart-wrap canvas { width: 100% !important; }
     .click-hint { text-align: center; font-family: 'Space Mono', monospace; font-size: 0.58rem; color: var(--text2); margin-top: 10px; opacity: 0; transition: opacity .2s; }
     .card:hover .click-hint { opacity: 1; }
 
@@ -351,26 +352,34 @@
   }
 
   function makeMiniChartConfig(data, col, endVal) {
+    const uid = 'el_' + Math.random().toString(36).slice(2);
     const endLabelPlugin = {
-      id: 'endLabel_' + Math.random(),
+      id: uid,
       afterDatasetsDraw(chart) {
-        const { ctx, data: d, chartArea: { right, top } } = chart;
+        const { ctx, chartArea: { right, top, bottom } } = chart;
         const ds = chart.getDatasetMeta(0);
         if (!ds.data.length) return;
         const last = ds.data[ds.data.length - 1];
-        const val  = String(endVal);
-        const labelY = Math.max(last.y - 10, top + 8);
+        const val = String(endVal);
         ctx.save();
-        ctx.font = "bold 10px 'Space Mono', monospace";
+        ctx.font = "bold 9px 'Space Mono', monospace";
         const tw = ctx.measureText(val).width;
-        ctx.fillStyle = col + "22";
-        ctx.beginPath();
-        ctx.roundRect(right - tw - 12, labelY - 9, tw + 10, 14, 4);
-        ctx.fill();
+        const pad = 3;
+        const bw = tw + pad * 2;
+        const bh = 13;
+        // Position: float above the last point, clamped within chart
+        const bx = right - bw - 2;
+        const by = Math.min(Math.max(last.y - bh - 3, top), bottom - bh);
+        // pill
         ctx.fillStyle = col;
-        ctx.textAlign = 'right';
+        ctx.beginPath();
+        ctx.roundRect(bx, by, bw, bh, 3);
+        ctx.fill();
+        // text
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(val, right - 4, labelY - 2);
+        ctx.fillText(val, bx + pad, by + bh / 2);
         ctx.restore();
       }
     };
@@ -393,7 +402,7 @@
         plugins: { legend:{display:false}, tooltip:{enabled:false} },
         scales: { x:{display:false}, y:{display:false, beginAtZero:true} },
         animation: { duration: 400 },
-        layout: { padding: { right: 32, top: 12 } }
+        layout: { padding: { right: 2, top: 16, bottom: 2, left: 2 } }
       },
       plugins: [endLabelPlugin]
     };
